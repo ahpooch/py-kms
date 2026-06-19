@@ -1,5 +1,5 @@
-# Switch to the target image
-FROM alpine:3.22
+# This is a full version of Dockerfile with SQLite support and Prometheus metrics endpoint
+FROM alpine:3.24.1
 
 ARG BUILD_COMMIT=unknown
 ARG BUILD_REFERENCE=unknown
@@ -19,21 +19,26 @@ ENV LOGSIZE=""
 ENV TZ=America/Chicago
 ENV WEBUI=1
 
-COPY docker/docker-py3-kms/requirements.txt /home/py-kms/
-RUN apk add --no-cache --update \
-  bash \
-  python3 \
-  py3-pip \
-  sqlite-libs \
-  ca-certificates \
-  tzdata \
-  shadow \
-  && pip3 install --break-system-packages --no-cache-dir -r /home/py-kms/requirements.txt \
-  && mkdir /db/ /home/py-kms/db \
-  && adduser -S py-kms -G users -s /bin/bash \
-  && chown py-kms:users /home/py-kms \
-  # Fix undefined timezone, in case the user did not mount the /etc/localtime
-  && ln -sf /usr/share/zoneinfo/UTC /etc/localtime
+# fix for apk 403 errors during build time
+RUN sed -i 's/https/http/g' /etc/apk/repositories
+
+# Adding dependency packages
+RUN apk add --no-cache --update bash python3 py3-pip ca-certificates shadow tzdata
+
+# installing requirements
+COPY docker/docker-py3-kms/requirements.txt /home/py-kms/requirements.txt
+RUN pip3 install --break-system-packages --no-cache-dir -r /home/py-kms/requirements.txt
+
+
+# installing requirements
+COPY docker/docker-py3-kms/requirements.txt /home/py-kms/requirements.txt
+RUN pip3 install --break-system-packages --no-cache-dir -r /home/py-kms/requirements.txt
+
+RUN mkdir -p /db/ /home/py-kms/db && \
+    adduser -S py-kms -G users -s /bin/bash && \
+    chown py-kms:users /home/py-kms && \
+    # Fix undefined timezone, in case the user did not mount the /etc/localtime
+    ln -sf /usr/share/zoneinfo/UTC /etc/localtime
 
 COPY py-kms /home/py-kms/
 COPY docker/entrypoint.py /usr/bin/entrypoint.py
