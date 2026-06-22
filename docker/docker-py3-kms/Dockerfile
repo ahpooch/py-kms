@@ -18,6 +18,9 @@ ENV LOGFILE=STDOUT
 ENV LOGSIZE=""
 ENV TZ=America/Chicago
 ENV WEBUI=1
+ENV WEBUI_PORT=8080
+ENV METRICS=0
+ENV METRICS_PORT=9090
 
 # fix for apk 403 errors during build time
 RUN sed -i 's/https/http/g' /etc/apk/repositories
@@ -60,8 +63,11 @@ RUN echo "$BUILD_COMMIT" > /VERSION && echo "$BUILD_REFERENCE" >> /VERSION
 
 WORKDIR /home/py-kms
 
+# KMS port (default 1688), WebUI port (default 8080), Metrics port (default 9090)
+# Use docker run -p to expose these ports as needed
 EXPOSE ${PORT}/tcp
 EXPOSE 8080/tcp
+EXPOSE 9090/tcp
 
 HEALTHCHECK --interval=5m --timeout=10s --start-period=10s --retries=3 CMD /usr/bin/python3 /usr/bin/healthcheck.py
 

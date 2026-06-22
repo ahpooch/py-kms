@@ -1,5 +1,5 @@
 import os, uuid, datetime
-from flask import Flask, render_template, Response
+from flask import Flask, render_template
 from pykms_Sql import sql_get_all
 from pykms_DB2Dict import kmsDB2Dict
 
@@ -139,100 +139,4 @@ def products():
         count_products_windows=countProductsWindows,
         count_products_office=countProductsOffice
     )
-
-@app.route('/metrics')
-def metrics():
-    """Prometheus metrics endpoint in text format."""
-    metrics_lines = []
-    
-    # Helper to add metric
-    def add_metric(name, value, labels=None, metric_type='gauge', help_text=None):
-        if help_text:
-            metrics_lines.append(f'# HELP {name} {help_text}')
-        metrics_lines.append(f'# TYPE {name} {metric_type}')
-        if labels:
-            label_str = ','.join(f'{k}="{v}"' for k, v in labels.items())
-            metrics_lines.append(f'{name}{{{label_str}}} {value}')
-        else:
-            metrics_lines.append(f'{name} {value}')
-    
-    # Basic service metrics
-    start_time = app.jinja_env.globals['start_time']
-    uptime = (datetime.datetime.now() - start_time).total_seconds()
-    request_count = _get_serve_count()
-    
-    add_metric('pykms_up', 1, help_text='Service status (1=up, 0=down)')
-    add_metric('pykms_start_time_seconds', int(start_time.timestamp()), help_text='Service start time as Unix timestamp')
-    add_metric('pykms_uptime_seconds', uptime, help_text='Service uptime in seconds')
-    add_metric('pykms_requests_total', request_count, help_text='Total number of HTTP requests to WebUI')
-    
-    # Get database path and fetch clients
-    db_path = os.environ.get(_dbEnvVarName)
-    clients = None
-    if db_path:
-        try:
-            clients = sql_get_all(db_path)
-        except Exception:
-            clients = None
-    
-    # Client metrics
-    if clients:
-        count_total = len(clients)
-        count_windows = len([c for c in clients if c.get('applicationId') == 'Windows'])
-        count_office = count_total - count_windows
-        
-        add_metric('pykms_clients_total', count_total, help_text='Total number of unique clients')
-        add_metric('pykms_clients_by_application', count_windows, labels={'application': 'Windows'}, help_text='Number of Windows clients')
-        add_metric('pykms_clients_by_application', count_office, labels={'application': 'Office'}, help_text='Number of Office clients')
-        
-        # Per-client request counts
-        for client in clients:
-            client_id = client.get('clientMachineId', 'unknown')
-            request_count_client = client.get('requestCount', 0)
-            app_id = client.get('applicationId', 'unknown')
-            sku_id = client.get('skuId', 'unknown')
-            status = client.get('licenseStatus', 'unknown')
-            
-            add_metric(
-                'pykms_client_request_count',
-                request_count_client,
-                labels={
-                    'client_machine_id': client_id,
-                    'application_id': app_id,
-                    'sku_id': sku_id
-                },
-                help_text='Number of activation requests from this client'
-            )
-            
-            add_metric(
-                'pykms_activations_by_status',
-                1 if status in ['Licensed', 'Grace Period', 'Notification'] else 0,
-                labels={
-                    'client_machine_id': client_id,
-                    'application_id': app_id,
-                    'sku_id': sku_id,
-                    'status': status
-                },
-                help_text='Activation status of client (1=active status, 0=other)'
-            )
-    
-    # Product metrics
-    items, noglvk = _get_kms_items_cache()
-    count_products = sum([len(entries) for entries in items.values()])
-    count_products_with_gvlk = count_products - noglvk
-    
-    add_metric('pykms_products_total', count_products, help_text='Total number of products in KMS database')
-    add_metric('pykms_products_with_gvlk_total', count_products_with_gvlk, help_text='Number of products with GVLK keys')
-    
-    # Products by category
-    for group_name, products in items.items():
-        category = group_name.lower().split()[0] if group_name else 'unknown'
-        add_metric(
-            'pykms_products_by_category',
-            len(products),
-            labels={'category': category},
-            help_text='Number of products by category'
-        )
-    
-    return Response('\n'.join(metrics_lines) + '\n', mimetype='text/plain')
     
