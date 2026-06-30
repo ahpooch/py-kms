@@ -1,0 +1,5 @@
+# --- Core Dependencies ---
+# See ../docker-py3-kms/requirements.txt
+
+# --- Metrics Dependencies ---
+prometheus-client==0.25.0

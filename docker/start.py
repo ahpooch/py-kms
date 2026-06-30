@@ -7,6 +7,13 @@ import subprocess
 import sys
 import time
 
+# Optional metrics support
+try:
+    import pykms_Metrics
+    metrics_available = True
+except ImportError:
+    metrics_available = False
+
 PYTHON3 = '/usr/bin/python3'
 argumentVariableMapping = {
   '-l': 'LCID',
@@ -65,6 +72,17 @@ def start_kms(logger):
   except Exception as e:
     logger.error("Failed to start webui (ignoring and continuing anyways): %s" % e)
 
+  # Start metrics server if enabled
+  metrics_process = None
+  if metrics_available and pykms_Metrics.is_metrics_enabled():
+    try:
+      # Start metrics server in a separate thread (it's lightweight)
+      metrics_port = int(os.environ.get('METRICS_PORT', '9090'))
+      if pykms_Metrics.start_metrics_server(port=metrics_port):
+        logger.info("Prometheus metrics server started on port %d" % metrics_port)
+    except Exception as e:
+      logger.error("Failed to start metrics server (continuing anyways): %s" % e)
+
   try:
     pykms_process.wait()
   except Exception:
@@ -79,6 +97,10 @@ def start_kms(logger):
     pykms_webui_process.terminate()
   logger.debug("Terminating KMS process...")
   pykms_process.terminate()
+  
+  # Note: prometheus_client doesn't support clean shutdown of metrics server
+  if metrics_available and pykms_Metrics.is_metrics_enabled():
+    logger.debug("Metrics server will stop automatically with process termination")
 
 
 # Main

@@ -24,6 +24,13 @@ from pykms_Misc import kms_parser_get, kms_parser_check_optionals, kms_parser_ch
 from pykms_Format import enco, deco, pretty_printer, justify
 from pykms_Connect import MultipleListener
 
+# Optional metrics support
+try:
+    import pykms_Metrics
+    metrics_available = True
+except ImportError:
+    metrics_available = False
+
 srv_version             = "py-kms_2020-10-01"
 __license__             = "The Unlicense"
 __author__              = u"Matteo ℱan <SystemRage@protonmail.com>"
@@ -481,9 +488,17 @@ class kmsServerHandler(socketserver.BaseRequestHandler):
         def setup(self):
                 loggersrv.info("Connection accepted: %s:%d" %(self.client_address[0], self.client_address[1]))
                 srv_config['raddr'] = self.client_address
+                # Record connection opened for metrics
+                if metrics_available:
+                        pykms_Metrics.connection_opened()
 
         def handle(self):
                 self.request.settimeout(srv_config['timeoutsndrcv'])
+                # Track request duration if metrics enabled
+                if metrics_available:
+                        timer = pykms_Metrics.RequestTimer()
+                        timer.__enter__()
+                
                 while True:
                         # self.request is the TCP socket connected to the client
                         try:
@@ -496,11 +511,14 @@ class kmsServerHandler(socketserver.BaseRequestHandler):
                                 pretty_printer(log_obj = loggersrv.error,
                                                put_text = "{reverse}{red}{bold}While receiving: %s{end}" %str(e))
                                 break
-                        
+
                         packetType = MSRPCHeader(self.data)['type']
                         if packetType == rpcBase.packetType['bindReq']:
                                 loggersrv.info("RPC bind request received.")
                                 pretty_printer(num_text = [-2, 2], where = "srv")
+                                # Record bind request for metrics
+                                if metrics_available:
+                                        pykms_Metrics.record_kms_bind()
                                 handler = pykms_RpcBind.handler(self.data, srv_config)
                         elif packetType == rpcBase.packetType['request']:
                                 loggersrv.info("Received activation request.")
@@ -519,6 +537,25 @@ class kmsServerHandler(socketserver.BaseRequestHandler):
                         elif packetType == rpcBase.packetType['request']:
                                 loggersrv.info("Responded to activation request.")
                                 pretty_printer(num_text = [-3, 18, 19], where = "srv")
+                                # Record successful activation for metrics
+                                if metrics_available:
+                                        # Try to determine product type from response
+                                        product = 'Unknown'
+                                        try:
+                                                # Check if we can determine the product from the handler
+                                                if hasattr(handler, 'product') and handler.product:
+                                                        product = handler.product
+                                                elif hasattr(handler, 'request') and handler.request:
+                                                        # Try to extract application ID from request
+                                                        app_id = getattr(handler.request, 'applicationId', None)
+                                                        if app_id:
+                                                                if 'windows' in app_id.lower():
+                                                                        product = 'Windows'
+                                                                elif 'office' in app_id.lower():
+                                                                        product = 'Office'
+                                        except Exception:
+                                                pass  # Best effort only
+                                        pykms_Metrics.record_kms_activation(product)
 
                         try:
                                 self.request.send(res)
@@ -528,10 +565,17 @@ class kmsServerHandler(socketserver.BaseRequestHandler):
                                 pretty_printer(log_obj = loggersrv.error,
                                                put_text = "{reverse}{red}{bold}While sending: %s{end}" %str(e))
                                 break
+                
+                # Record request duration
+                if metrics_available:
+                        timer.__exit__(None, None, None)
 
         def finish(self):
                 self.request.close()
                 loggersrv.info("Connection closed: %s:%d" %(self.client_address[0], self.client_address[1]))
+                # Record connection closed for metrics
+                if metrics_available:
+                        pykms_Metrics.connection_closed()
 
 
 serverqueue = Queue.Queue(maxsize = 0)
